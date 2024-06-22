@@ -151,6 +151,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Patcher.h" />
+    <ClInclude Include="resource.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\.gitignore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Creed Patcher.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="ui_dev\icon.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

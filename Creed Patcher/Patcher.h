@@ -12,19 +12,16 @@ private:
 
 	unsigned int uiWidth = 500;
 	unsigned int uiHeight = 600;
-	std::string uiName = "Creed Patcher";
-	std::string siteUrl = "http://plex.chammond.info/";
+	std::string uiName = "Restart Launcher";
+	std::string siteUrl = "http://endless-online-restart.com/";
 
 	//std::vector<std::string> updateList;
 
 	enum GFX {
 		BG = 0,
 		INFOBOX = 1,
-		LOADING = 2,
-		UPDATEFOUND = 3,
-		READY = 4,
-		BUTTON_PLAY = 5,
-		BUTTON_UPDATE = 6
+		BUTTON_PLAY = 2,
+		BUTTON_UPDATE = 3
 	};
 	std::map<int, sf::Sprite> sprites;
 	std::map<int, sf::Texture> textures;
@@ -36,7 +33,6 @@ private:
 	sf::Font font;
 
 	bool callDraw = false;
-	std::mutex mtx;
 
 	std::vector<sf::Text> newsText;
 
@@ -47,12 +43,16 @@ private:
 	bool DownloadFile(const std::string& url, const std::string& outputFilename);
 
 	void GetLocalVersion();
-	void SetLocalVersion();
+	void SetLocalVersion(float value);
 	void GetRemoteVersion();
 	void CompileUpdateList();
+	void StartUpdate();
+	void PlayGame();
 	void Tick();
 	void FetchUpdates();
-
+	void CheckButtonClick(int x, int y);
+	void CompileGFXPack();
+	void LoadGFX();
 	enum States {
 		CHECKING_FOR_UPDATE = 0,
 		UPDATE_FOUND = 1,
@@ -62,12 +62,15 @@ private:
 		READY_TO_PLAY = 5
 	};
 	States state;
+	bool terminate = false;
 
 public:
 
 	Patcher() {};
 
-	void FetchNews();
+	std::mutex mtx;
+
+	void FetchInfo();
 	void Out(std::string msg);
 	void Run();
 	void SortUIElements();

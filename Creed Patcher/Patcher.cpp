@@ -4,6 +4,7 @@
 #include <fstream>
 #include <filesystem>
 #include <iomanip>
+#include <Windows.h>
 
 void Patcher::Out(std::string msg)
 {
@@ -20,6 +21,7 @@ std::string floatToStringWithPrecision(float value, int precision) {
 
 void Patcher::Run()
 {
+	this->terminate = false;
 #ifdef DEBUG
 	Patcher::Out("Select an option");
 	Patcher::Out("Run - 1");
@@ -30,32 +32,50 @@ void Patcher::Run()
 
 	if (opt == "2")
 	{
-		// gfx compiler..
+		std::string msg = "This will write the graphics from ui_dev/ into\n";
+		msg += ".dat gfx files. Once you have checked you have:\n";
+		msg += "0.png = BG, 1.png = infoboard, 2.png = buttons, 3.icon.png = icon(for window)..\n";
+		msg += "Press c to continue";
+		Patcher::Out(msg);
+
+		std::cin >> msg;
+
+		if (msg == "c")
+		{
+			//compile
+			this->CompileGFXPack();
+		}
+		else
+		{
+			Patcher::Out("Exiting compiler");
+			sf::sleep(sf::seconds(2));
+		}
 
 		return;
 	}
 #endif
-	std::thread(&Patcher::FetchNews, this).detach();
-	std::thread(&Patcher::GetRemoteVersion, this).detach();
 
 	this->GetLocalVersion();
 
 	// TODO show why it's closing.. popup window?
-	if (!this->font.loadFromFile("data/img/font.ttf"))
+	if (!this->font.loadFromFile("data/font.ttf"))
 		return;
 
-	for (int i = 0; i <= 5; i++)
-	{
-		if (!this->textures[i].loadFromFile("data/img/" + std::to_string(i)+".png"))
-			return;
+	this->LoadGFX();
+	
+	bool fetchData = false;
 
-		this->sprites[i].setTexture(this->textures[i], true);
-	}
+	std::thread(&Patcher::FetchInfo, this).detach();
 
 	this->SortUIElements();
 
-
 	sf::RenderWindow window(sf::VideoMode(this->uiWidth, this->uiHeight), this->uiName, sf::Style::Close);
+
+
+	sf::Image icon;
+	icon = this->textures[3].copyToImage();
+
+	window.setIcon(icon.getSize().x, icon.getSize().y, icon.getPixelsPtr());
 
 	window.setFramerateLimit(60);
 
@@ -77,6 +97,13 @@ void Patcher::Run()
 
 				this->UpdateButtonHover(mousePos);
 			}
+			else if (event.type == sf::Event::MouseButtonReleased)
+			{
+				if (event.mouseButton.button == sf::Mouse::Left)
+				{
+					this->CheckButtonClick(event.mouseButton.x, event.mouseButton.y);
+				}
+			}
 		}
 
 
@@ -91,9 +118,11 @@ void Patcher::Run()
 
 			// texts
 
-			window.draw(this->infoTitle);
+			this->mtx.lock();
 
-			std::lock_guard<std::mutex> Lock(this->mtx);
+
+			window.draw(this->infoTitle);
+			
 			for (auto& txt : this->newsText)
 			{
 				if (txt.getGlobalBounds().height + txt.getPosition().x >= this->sprites[GFX::INFOBOX].getPosition().x + this->sprites[GFX::INFOBOX].getGlobalBounds().height - 30)
@@ -101,9 +130,19 @@ void Patcher::Run()
 
 				window.draw(txt);
 			}
+			this->mtx.unlock();
+
 			window.display();
 		}
 		this->callDraw = false;
+
+		if (!fetchData)
+		{
+			fetchData = true;
+			//this->FetchInfo();
+		}
+		if (this->terminate)
+			window.close();
 	}
 }
 void Patcher::SortUIElements()
@@ -131,9 +170,9 @@ void Patcher::SortUIElements()
 	this->infoTitle.setOutlineThickness(1.f);
 	this->infoTitle.setFont(this->font);
 	this->infoTitle.setPosition(sf::Vector2f(135, 200));
-	this->infoTitle.setString("Fetching News..");
+	this->infoTitle.setString("Checking for updates!");
 
-	this->infoTitleOriginal = "Fetching News..";
+	this->infoTitleOriginal = "";
 
 }
 void Patcher::UpdateButtonHover(sf::Vector2i pos)
@@ -146,8 +185,11 @@ void Patcher::UpdateButtonHover(sf::Vector2i pos)
 	}
 	else
 	{
-		this->buttonHover[GFX::BUTTON_PLAY] = false;
-		this->sprites[GFX::BUTTON_PLAY].setTextureRect(sf::IntRect(0, 0, 89, 27));
+		if (this->state != States::READY_TO_PLAY)
+		{
+			this->buttonHover[GFX::BUTTON_PLAY] = false;
+			this->sprites[GFX::BUTTON_PLAY].setTextureRect(sf::IntRect(0, 0, 89, 27));
+		}
 	}
 
 	if (this->sprites[GFX::BUTTON_UPDATE].getGlobalBounds().contains(sf::Vector2f(pos.x, pos.y)))
@@ -163,7 +205,7 @@ void Patcher::UpdateButtonHover(sf::Vector2i pos)
 }
 void Patcher::GetLocalVersion()
 {
-	std::ifstream versionFile("data/img/version.txt");
+	std::ifstream versionFile("data/version.txt");
 
 	try
 	{
@@ -187,6 +229,7 @@ void Patcher::GetLocalVersion()
 }
 void Patcher::GetRemoteVersion()
 {
+	return;
 	sf::Http http(this->siteUrl);
 
 	sf::Http::Request listRequest;
@@ -215,44 +258,39 @@ void Patcher::GetRemoteVersion()
 			this->remoteVersion = std::stof(line);
 
 			if (this->localVersion < this->remoteVersion)
+			{
 				this->state = States::UPDATE_FOUND;
+				this->infoTitle.setString("patch Found!  -" + floatToStringWithPrecision(this->remoteVersion, 1)+"-");
+			}
+			else
+			{
+				this->state = States::READY_TO_PLAY;
+			}
 		}
 	}
+	this->callDraw = true;
 }
-void Patcher::SetLocalVersion()
+void Patcher::SetLocalVersion(float value)
 {
+	std::ofstream file("data/version.txt", std::ios::trunc);
+	file << value;
+	file.close();
 }
 void Patcher::Tick()
 {
-
-	if (this->state == States::UPDATE_FOUND)
-	{
-		// this will change to work on the update button
-
-
-		if (this->localVersion < 0.0)
-			this->localVersion = 0.1;
-		std::lock_guard<std::mutex> Lock(this->mtx);
-		this->infoTitle.setString("Fetching update list..");
-
-		std::thread(&Patcher::CompileUpdateList, this).detach();
-		this->state = States::COMPILING_UPDATE_LIST;
-	}
-	else if (this->state == States::UPDATE_LIST_COMPILED)
+	if (this->state == States::UPDATE_LIST_COMPILED)
 	{
 		this->state = States::FETCHING_UPDATES;
 		std::thread(&Patcher::FetchUpdates, this).detach();
-
 	}
+
 }
 void Patcher::FetchUpdates()
 {
 	for (auto& patch : this->updates)
 	{
-		this->mtx.lock();
 		this->infoTitle.setString("Downloading " + patch);
 		this->callDraw = true;
-		this->mtx.unlock();
 
 		if (this->DownloadFile(this->siteUrl + "eo/EORClient/" + patch, patch))
 		{
@@ -262,11 +300,74 @@ void Patcher::FetchUpdates()
 
 		}
 	}
-
 	this->mtx.lock();
 	this->infoTitle.setString(this->infoTitleOriginal);
+	this->state = States::READY_TO_PLAY;
+	this->SetLocalVersion(this->remoteVersion);
+	this->sprites[GFX::BUTTON_PLAY].setTextureRect(sf::IntRect(0, 27, 89, 27));
+
 	this->callDraw = true;
 	this->mtx.unlock();
+}
+void Patcher::StartUpdate()
+{
+	if (this->localVersion < 0.0)
+		this->localVersion = 0.1;
+
+	this->mtx.lock();
+	this->infoTitle.setString("Fetching update list..");
+	this->mtx.unlock();
+
+	std::thread(&Patcher::CompileUpdateList, this).detach();
+	this->state = States::COMPILING_UPDATE_LIST;
+}
+void Patcher::PlayGame()
+{
+	STARTUPINFO si;
+	PROCESS_INFORMATION pi;
+
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+	ZeroMemory(&pi, sizeof(pi));
+
+	// Start the child process
+	if (!CreateProcess(
+		L"endless.exe", // Path to the program
+		NULL,         // Command line (if needed)
+		NULL,         // Process handle not inheritable
+		NULL,         // Thread handle not inheritable
+		FALSE,        // Set handle inheritance to FALSE
+		0,            // No creation flags
+		NULL,         // Use parent's environment block
+		NULL,         // Use parent's starting directory
+		&si,          // Pointer to STARTUPINFO structure
+		&pi)          // Pointer to PROCESS_INFORMATION structure
+		) 
+	{
+#ifdef DEBUG
+		std::cerr << "CreateProcess failed (" << GetLastError() << ").\n";
+#endif
+		return;
+	}
+
+	this->terminate = true;
+}
+void Patcher::CheckButtonClick(int x, int y)
+{
+	if (this->sprites[GFX::BUTTON_UPDATE].getGlobalBounds().contains(sf::Vector2f(x, y)))
+	{
+		if (this->state == States::UPDATE_FOUND)
+		{
+			this->StartUpdate();
+		}
+	}
+	else if (this->sprites[GFX::BUTTON_PLAY].getGlobalBounds().contains(sf::Vector2f(x, y)))
+	{
+		if (this->state == States::READY_TO_PLAY)
+		{
+			this->PlayGame();
+		}
+	}
 }
 void Patcher::CompileUpdateList()
 {
@@ -291,7 +392,6 @@ void Patcher::CompileUpdateList()
 		listRequest.setField("Accept-Language", "en-US,en;q=0.9");
 		listRequest.setField("Connection", "keep-alive");
 		
-
 		this->mtx.lock();
 		this->infoTitle.setString("Fetching patchelist v" + verStr + " -> " + floatToStringWithPrecision(this->remoteVersion, 1));
 		this->callDraw = true;
@@ -315,7 +415,9 @@ void Patcher::CompileUpdateList()
 						found = true;
 
 				}
+#ifdef DEBUG
 				std::cout << line << "\n";
+#endif
 
 				if(!found)
 					tmpVec.emplace_back(line);
@@ -330,9 +432,7 @@ void Patcher::CompileUpdateList()
 		}
 		else
 		{
-			this->mtx.lock();
-			this->infoTitle.setString("Failed to fetch news..");
-			this->mtx.unlock();
+			this->infoTitle.setString("Failed to fetch patchlist.");
 			std::cout << "Bad response\n";
 		}
 	}
@@ -346,16 +446,19 @@ void Patcher::CompileUpdateList()
 		this->state = States::UPDATE_LIST_COMPILED;
 	}
 	else
+	{
 		this->state = States::READY_TO_PLAY;
+		this->sprites[GFX::BUTTON_PLAY].setTextureRect(sf::IntRect(0, 27, 89, 27));
+	}
 	this->callDraw = true;
 }
-void Patcher::FetchNews()
+void Patcher::FetchInfo()
 {
 	sf::Http http(this->siteUrl);
 	
 	sf::Http::Request listRequest;
 	listRequest.setMethod(sf::Http::Request::Get); // Use GET method
-	listRequest.setUri("eo/news.txt"); // Specify the URI of the webpage
+	listRequest.setUri("eo/info.txt"); // Specify the URI of the webpage
 	listRequest.setHttpVersion(1, 1);
 
 	// Mimic browser-like headers
@@ -369,44 +472,82 @@ void Patcher::FetchNews()
 
 	sf::Http::Response listResponse = http.sendRequest(listRequest);
 
-	this->mtx.lock();
 	if (listResponse.getStatus() == sf::Http::Response::Ok)
 	{
+		this->mtx.lock();
+
 		std::istringstream responseStream(listResponse.getBody());
 		std::string line;
 
 		int startX = 80;
 		int startY = 230;
 
+		int c = 0;
 		while (std::getline(responseStream, line))
 		{
-
+			if (c == 0)//version
+			{
+				try
+				{
+					this->remoteVersion = std::stof(line);
+				}
+				catch (...)
+				{
+					this->remoteVersion = 0.0;
+					c++;
+					continue;
+				}
+				if (this->localVersion < this->remoteVersion)
+				{
+					this->state = States::UPDATE_FOUND;
+					this->infoTitle.setString("Patch Found! (" + floatToStringWithPrecision(this->remoteVersion, 1)+")");
+				}
+				else
+				{
+					this->state = States::READY_TO_PLAY;
+					this->sprites[GFX::BUTTON_PLAY].setTextureRect(sf::IntRect(0, 27, 89, 27));
+				}
+			}
+			else if (c > 0) // news
+			{
 #ifdef DEBUG
-			Patcher::Out("[News] " + line);
+				Patcher::Out("[News] " + line);
 #endif // DEBUG
 
-			if (this->infoTitleOriginal == "Fetching news..")
-			{
-				this->infoTitle.setString(line);
-				this->infoTitleOriginal = line;
-				continue;
-			}
-			sf::Text txt(line, this->font, 14);
-			txt.setFillColor(sf::Color(202, 186, 131));
-			txt.setOutlineThickness(1.f);
-			txt.setOutlineColor(sf::Color::Black);
-			txt = this->WrapText(txt, 320);
-			txt.setPosition(startX, startY);
-			this->newsText.emplace_back(txt);
+				if (this->infoTitleOriginal == "")
+				{
+					this->infoTitleOriginal = line;
+					if (this->state == States::READY_TO_PLAY)
+					{
+						this->infoTitle.setString(line);
+						this->sprites[GFX::BUTTON_PLAY].setTextureRect(sf::IntRect(0, 27, 89, 27));
+					}
 
-			startY += txt.getGlobalBounds().getSize().y + 10;
+					continue;
+				}
+				sf::Text txt;
+				txt.setCharacterSize(14);
+				txt.setString(line);
+				txt.setFont(this->font);
+				txt.setFillColor(sf::Color(202, 186, 131));
+				txt.setOutlineThickness(1.f);
+				txt.setOutlineColor(sf::Color::Black);
+				txt = this->WrapText(txt, 320);
+				txt.setPosition(startX, startY);
+				this->newsText.emplace_back(txt);
+
+				startY += txt.getGlobalBounds().getSize().y + 10;
+			}
+			c++;
 		}
+		this->mtx.unlock();
 	}
 	else
 	{
+		this->mtx.lock();
 		this->infoTitle.setString("Failed to fetch news..");
+		this->mtx.unlock();
 	}
-	this->mtx.unlock();
 
 	this->callDraw = true;
 }
@@ -448,7 +589,7 @@ bool Patcher::DownloadFile(const std::string& url, const std::string& outputFile
 	request.setField("Connection", "keep-alive");
 
 	// Send the request and get the response
-	sf::Http::Response response = http.sendRequest(request);
+	sf::Http::Response response = http.sendRequest(request, sf::Time(sf::seconds(5)));
 
 	if (response.getStatus() == sf::Http::Response::Ok)
 	{
@@ -513,4 +654,87 @@ sf::Text Patcher::WrapText(sf::Text& text, float width)
 	}
 
 	return text;
+}void Patcher::CompileGFXPack()
+{
+	std::ofstream gfxPack("Data/patcher.dat", std::ios::binary | std::ios::trunc);
+
+	if (gfxPack.good() && gfxPack.is_open())
+	{
+		for (int i = 0; i <= 3; i++)
+		{
+			sf::Image img;
+			std::string path = "ui_dev/" + std::to_string(i)+".png";
+			if (img.loadFromFile(path))
+			{
+				sf::Uint32 sizeX = img.getSize().x, sizeY = img.getSize().y;
+				gfxPack.write(reinterpret_cast<char*>(&sizeX), sizeof(sf::Uint32));
+				gfxPack.write(reinterpret_cast<char*>(&sizeY), sizeof(sf::Uint32));
+
+				Patcher::Out("Compiling " + path);
+				for (int x = 0; x < sizeX; x++)
+				{
+					for (int y = 0; y < sizeY; y++)
+					{
+						sf::Color px = img.getPixel(x, y);
+						sf::Uint8 r = px.r, g = px.g, b = px.b, a = px.a;
+
+						gfxPack.write(reinterpret_cast<char*>(&a), sizeof(sf::Uint8));
+						gfxPack.write(reinterpret_cast<char*>(&g), sizeof(sf::Uint8));
+						gfxPack.write(reinterpret_cast<char*>(&b), sizeof(sf::Uint8));
+						gfxPack.write(reinterpret_cast<char*>(&r), sizeof(sf::Uint8));
+					}
+				}
+			}
+			else
+			{
+				Patcher::Out("Failed to load " + std::to_string(i) + ".png for compile, exiting..");
+				sf::sleep(sf::seconds(3));
+				return;
+			}
+		}
+
+
+		gfxPack.close();
+	}
+}
+
+void Patcher::LoadGFX()
+{
+	std::ifstream gfxPack("data/patcher.dat", std::ios::binary);
+	if (gfxPack.good() && gfxPack.is_open())
+	{
+		for (int i = 0; i <= 3; i++)
+		{
+			sf::Uint32 sizeX = 0, sizeY = 0;
+
+			gfxPack.read(reinterpret_cast<char*>(&sizeX), sizeof(sf::Uint32));
+			gfxPack.read(reinterpret_cast<char*>(&sizeY), sizeof(sf::Uint32));
+
+			if (sizeX && sizeY > 0)
+			{
+				sf::Image img;
+				img.create(sizeX, sizeY);
+
+				for (int x = 0; x < sizeX; x++)
+				{
+					for (int y = 0; y < sizeY; y++)
+					{
+						sf::Uint8 r = 0, g = 0, b = 0, a = 0;
+
+						gfxPack.read(reinterpret_cast<char*>(&a), sizeof(sf::Uint8));
+						gfxPack.read(reinterpret_cast<char*>(&g), sizeof(sf::Uint8));
+						gfxPack.read(reinterpret_cast<char*>(&b), sizeof(sf::Uint8));
+						gfxPack.read(reinterpret_cast<char*>(&r), sizeof(sf::Uint8));
+
+						img.setPixel(x, y, sf::Color(r, g, b, a));
+					}
+				}
+				this->textures[i].loadFromImage(img);
+				this->sprites[i].setTexture(this->textures[i]);
+			}
+
+		}
+
+		gfxPack.close();
+	}
 }
