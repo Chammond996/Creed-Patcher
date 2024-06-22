@@ -12,8 +12,8 @@ private:
 
 	unsigned int uiWidth = 500;
 	unsigned int uiHeight = 600;
-	std::string uiName = "Restart Launcher";
-	std::string siteUrl = "http://endless-online-restart.com/";
+	std::string uiName = "Creed Launcher";
+	std::string siteUrl = "Your website domain";
 
 	//std::vector<std::string> updateList;
 
