@@ -13,7 +13,11 @@ private:
 	unsigned int uiWidth = 500;
 	unsigned int uiHeight = 600;
 	std::string uiName = "Creed Launcher";
-	std::string siteUrl = "Your website domain";
+	// host to connect to
+	std::string siteUrl = "http://dev.taffi.info/";
+	// name of the client on the host
+	std::string clientDir = "client/";
+
 
 	//std::vector<std::string> updateList;
 

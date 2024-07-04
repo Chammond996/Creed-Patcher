@@ -292,7 +292,7 @@ void Patcher::FetchUpdates()
 		this->infoTitle.setString("Downloading " + patch);
 		this->callDraw = true;
 
-		if (this->DownloadFile(this->siteUrl + "eo/EORClient/" + patch, patch))
+		if (this->DownloadFile(this->siteUrl + "eo/"+this->clientDir.c_str() + patch, patch))
 		{
 #ifdef DEBUG
 			this->Out("Downloaded file: " + patch);
@@ -323,31 +323,44 @@ void Patcher::StartUpdate()
 }
 void Patcher::PlayGame()
 {
-	STARTUPINFO si;
-	PROCESS_INFORMATION pi;
+	bool clientFound = false;
 
-	ZeroMemory(&si, sizeof(si));
-	si.cb = sizeof(si);
-	ZeroMemory(&pi, sizeof(pi));
-
-	// Start the child process
-	if (!CreateProcess(
-		L"endless.exe", // Path to the program
-		NULL,         // Command line (if needed)
-		NULL,         // Process handle not inheritable
-		NULL,         // Thread handle not inheritable
-		FALSE,        // Set handle inheritance to FALSE
-		0,            // No creation flags
-		NULL,         // Use parent's environment block
-		NULL,         // Use parent's starting directory
-		&si,          // Pointer to STARTUPINFO structure
-		&pi)          // Pointer to PROCESS_INFORMATION structure
-		) 
+	for(auto &entry : std::filesystem::directory_iterator("/"))
 	{
+		if (entry.path().filename() == this->clientName)
+		{
+			clientFound = true;
+		}
+	}
+
+	if (clientFound)
+	{
+		STARTUPINFO si;
+		PROCESS_INFORMATION pi;
+
+		ZeroMemory(&si, sizeof(si));
+		si.cb = sizeof(si);
+		ZeroMemory(&pi, sizeof(pi));
+
+		// Start the child process
+		if (!CreateProcess(
+			L"endless.exe", // Path to the program
+			NULL,         // Command line (if needed)
+			NULL,         // Process handle not inheritable
+			NULL,         // Thread handle not inheritable
+			FALSE,        // Set handle inheritance to FALSE
+			0,            // No creation flags
+			NULL,         // Use parent's environment block
+			NULL,         // Use parent's starting directory
+			&si,          // Pointer to STARTUPINFO structure
+			&pi)          // Pointer to PROCESS_INFORMATION structure
+			)
+		{
 #ifdef DEBUG
-		std::cerr << "CreateProcess failed (" << GetLastError() << ").\n";
+			std::cerr << "CreateProcess failed (" << GetLastError() << ").\n";
 #endif
-		return;
+			return;
+		}
 	}
 
 	this->terminate = true;
@@ -695,7 +708,12 @@ sf::Text Patcher::WrapText(sf::Text& text, float width)
 
 
 		gfxPack.close();
+
+		std::cout << "Compiled GFX! Updated data/patcher.dat\n";
+		std::cout << "closing in 5s\n";
+		sf::sleep(sf::seconds(5));
 	}
+
 }
 
 void Patcher::LoadGFX()
